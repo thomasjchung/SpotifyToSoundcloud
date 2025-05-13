@@ -1,10 +1,18 @@
 // src/components/Playlist.tsx
 
+import { soundCloudConvert } from "../spotify";
+
 interface PlaylistProps {
   playlist: any;
+  accessToken: string;
+  scAccessToken: string;
 }
 
-export default function Playlist({ playlist }: PlaylistProps) {
+export default function Playlist({
+  playlist,
+  accessToken,
+  scAccessToken,
+}: PlaylistProps) {
   return (
     <div
       style={{
@@ -15,6 +23,7 @@ export default function Playlist({ playlist }: PlaylistProps) {
     >
       <h3>{playlist.name}</h3>
       <p>Tracks: {playlist.tracks.total}</p>
+      <p>Href: {playlist.tracks.href}</p>
       {/* <a
         href={playlist.external_urls.spotify}
         target="_blank"
@@ -22,7 +31,18 @@ export default function Playlist({ playlist }: PlaylistProps) {
       >
         Open on Spotify
       </a> */}
-      <button>Click Here!</button>
+      <button
+        onClick={() =>
+          soundCloudConvert(
+            accessToken,
+            playlist.id,
+            playlist.name,
+            scAccessToken
+          )
+        }
+      >
+        Click Here!
+      </button>
     </div>
   );
 }

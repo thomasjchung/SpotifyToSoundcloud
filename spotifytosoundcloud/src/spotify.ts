@@ -54,6 +54,16 @@ export async function fetchPlaylists(accessToken: string) {
     return json.items;
 }
 
+// export async function getSongs(accessToken: string, playlistId: string){
+//     const result = await fetch(`https://api.spotify.com/v1/playlists/${playlistId}/tracks`,{
+//         headers: {Authorization: `Bearer ${accessToken}`}
+//     });
+//     const json = await result.json();
+//     console.log(json.items);
+//     return;
+// }
+
+
 export async function getAccessToken(code: string, verifier: string) {
   const params = new URLSearchParams();
   params.append("client_id", clientId);
@@ -78,4 +88,122 @@ export async function getAccessToken(code: string, verifier: string) {
 
   const data = await result.json();
   return data.access_token;
+}
+
+export async function soundCloudConvert(
+  accessToken: string,
+  playlistId: string,
+  playlistName: string,
+  scAccessToken: string
+) {
+  if (!scAccessToken) {
+    console.error("scAccessToken is undefined / empty!");
+    alert("You are not logged into SoundCloud");
+    return;
+  }
+
+  const result = await fetch(
+    `https://api.spotify.com/v1/playlists/${playlistId}/tracks`,
+    {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    }
+  );
+  const spotifyJson = await result.json();
+  const items = spotifyJson.items;
+
+  if (!items || items.length === 0) {
+    alert("No tracks found in Spotify playlist");
+    return;
+  }
+
+  const scTrackIds: number[] = [];
+
+  for (const item of items) {
+    const name = item.track?.name ?? "";
+    const artistNames = Array.isArray(item.track?.artists)
+      ? item.track.artists.slice(0, 3).map((a: any) => a.name)
+      : [];
+
+    const query = `${name} ${artistNames.join(" ")}`.trim();
+    console.log(`🔍 Searching SoundCloud for: "${query}"`);
+
+    const searchParams = new URLSearchParams({
+      q: query,
+      limit: "5",
+    });
+
+    const searchRes = await fetch(
+      `https://api.soundcloud.com/tracks?${searchParams.toString()}`,
+      {
+        headers: { Authorization: `OAuth ${scAccessToken}` },
+      }
+    );
+
+    let searchResults;
+    try {
+      searchResults = await searchRes.json();
+    } catch (err) {
+      console.warn(`⚠️ Failed to parse JSON for "${query}":`, err);
+      continue;
+    }
+
+    if (!Array.isArray(searchResults)) {
+      console.warn(`⚠️ Unexpected response for "${query}"`);
+      continue;
+    }
+
+    const normalizedSpotifyArtists = artistNames.map((n: string) =>
+    n.toLowerCase().replace(/[^a-z0-9]/gi, "")
+    );
+
+    const match = searchResults.find((track: any) => {
+    const scArtist = (track.user?.username || "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]/gi, "");
+    return normalizedSpotifyArtists.some((spotifyName: string) =>
+        scArtist.includes(spotifyName)
+    );
+    });
+
+    if (match) {
+      scTrackIds.push(match.id);
+      console.log(`✅ Matched: "${match.title}" by "${match.user.username}"`);
+    } else {
+      console.log(`❌ No official match found for "${query}"`);
+    }
+  }
+
+  if (scTrackIds.length === 0) {
+    alert("No matching SoundCloud tracks found.");
+    return;
+  }
+
+  const playlistPayload = {
+    playlist: {
+      title: playlistName,
+      sharing: "public",
+      tracks: scTrackIds.map((id) => ({ id })),
+    },
+  };
+
+  const createRes = await fetch("https://api.soundcloud.com/playlists", {
+    method: "POST",
+    headers: {
+      Authorization: `OAuth ${scAccessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(playlistPayload),
+  });
+
+  if (!createRes.ok) {
+    const errorText = await createRes.text();
+    console.error("Failed to create SoundCloud playlist:", errorText);
+    alert("Error creating SoundCloud playlist.");
+    return;
+  }
+
+  console.log("🎉 Created SoundCloud Playlist:", playlistName);
+  alert(
+    `SoundCloud playlist "${playlistName}" created with ${scTrackIds.length} track(s)!`
+  );
 }

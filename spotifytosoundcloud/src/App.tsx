@@ -1,4 +1,3 @@
-// src/App.tsx
 import { useEffect, useState } from "react";
 import Profile from "./components/Profile";
 import Playlist from "./components/Playlist";
@@ -9,74 +8,134 @@ import {
   redirectToAuthCodeFlow,
   generateCodeVerifier,
 } from "./spotify";
+import {
+  getSoundCloudAccessToken,
+  redirectToSoundCloudAuth,
+} from "./soundcloud";
 
 function App() {
   const [accessToken, setAccessToken] = useState<string>("");
+  const [scAccessToken, setScAccessToken] = useState<string>("");
   const [profile, setProfile] = useState<any>(null);
   const [playlists, setPlaylists] = useState<any[]>([]);
 
-  useEffect(() => {
-    async function handleAuth() {
-      const params = new URLSearchParams(window.location.search);
-      const code = params.get("code");
+  //  Spotify Auth Handler
+  async function handleSpotifyAuth(code: string | null) {
+    const storedToken = localStorage.getItem("access_token");
+    const verifier = localStorage.getItem("verifier");
 
-      const storedToken = localStorage.getItem("access_token");
-      const verifier = localStorage.getItem("verifier");
-
-      if (storedToken) {
-        // ✅ Check if stored token actually works by testing it
-        try {
-          const testProfile = await fetchProfile(storedToken);
-          if (testProfile.error) throw new Error("Invalid token");
-          console.log("Using stored token");
-          setAccessToken(storedToken);
-        } catch (e) {
-          console.warn("Stored token invalid, clearing and restarting auth");
-          localStorage.removeItem("access_token");
-          localStorage.removeItem("verifier");
-          const verifier = generateCodeVerifier();
-          await redirectToAuthCodeFlow(verifier);
-        }
-      } else if (code && verifier) {
-        try {
-          console.log("Trying this part");
-          const token = await getAccessToken(code, verifier);
-          localStorage.setItem("access_token", token);
-          setAccessToken(token);
-          // 🧹 Clean up URL
-          window.history.replaceState({}, document.title, "/");
-        } catch (e) {
-          console.error("Token exchange failed, restarting auth flow", e);
-          localStorage.removeItem("access_token");
-          localStorage.removeItem("verifier");
-          const verifier = generateCodeVerifier();
-          await redirectToAuthCodeFlow(verifier);
-        }
-      } else {
-        // Start fresh auth flow
-        console.log("Starting from fresh");
-        const verifier = generateCodeVerifier();
-        await redirectToAuthCodeFlow(verifier);
+    if (storedToken) {
+      try {
+        const testProfile = await fetchProfile(storedToken);
+        if (testProfile.error) throw new Error("Invalid token");
+        setAccessToken(storedToken);
+        return;
+      } catch {
+        localStorage.removeItem("access_token");
+        localStorage.removeItem("verifier");
       }
     }
 
-    handleAuth();
-  }, []);
+    if (code && verifier) {
+      try {
+        const token = await getAccessToken(code, verifier);
+        localStorage.setItem("access_token", token);
+        setAccessToken(token);
+        // Clean up URL
+        window.history.replaceState({}, document.title, "/");
+        return;
+      } catch {
+        localStorage.removeItem("access_token");
+        localStorage.removeItem("verifier");
+      }
+    }
 
+    const newVerifier = generateCodeVerifier();
+    await redirectToAuthCodeFlow(newVerifier);
+  }
+
+  //  SoundCloud Auth Handler
+  async function handleSoundCloudAuth(code: string | null) {
+    const storedToken = localStorage.getItem("sc_access_token");
+
+    if (storedToken) {
+      try {
+        const res = await fetch("https://api.soundcloud.com/me", {
+          headers: { Authorization: `OAuth ${storedToken}` },
+        });
+        if (!res.ok) throw new Error("Invalid token");
+        console.log(storedToken);
+        setScAccessToken(storedToken);
+        return;
+      } catch {
+        localStorage.removeItem("sc_access_token");
+      }
+    }
+
+    if (code) {
+      try {
+        const token = await getSoundCloudAccessToken(code);
+        const res = await fetch("https://api.soundcloud.com/me", {
+          headers: { Authorization: `OAuth ${token}` },
+        });
+        if (!res.ok) throw new Error("Invalid token after login");
+        localStorage.setItem("sc_access_token", token);
+        setScAccessToken(token);
+        // Clean up URL
+        console.log(token);
+        window.history.replaceState({}, document.title, "/");
+        return;
+      } catch (err) {
+        console.warn("SoundCloud login/token validation failed:", err);
+        localStorage.removeItem("sc_access_token");
+      }
+    }
+
+    await redirectToSoundCloudAuth();
+  }
+
+  //  Spotify useEffect
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("code");
+
+    const verifier = localStorage.getItem("verifier");
+
+    // If we don't have an access token, assume this code is for Spotify
+    if (!accessToken && verifier && code) {
+      handleSpotifyAuth(code);
+    } else if (!accessToken) {
+      handleSpotifyAuth(null);
+    }
+  }, [accessToken]);
+
+  //  SoundCloud useEffect
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("code");
+
+    // If we don't have a SoundCloud token, and Spotify has already handled its logic,
+    // assume this code is for SoundCloud
+    if (!scAccessToken && code && !localStorage.getItem("access_token")) {
+      handleSoundCloudAuth(code);
+    } else if (!scAccessToken) {
+      handleSoundCloudAuth(null);
+    }
+  }, [scAccessToken]);
+
+  //  Fetch Spotify data
   useEffect(() => {
     if (!accessToken) return;
 
     async function loadData() {
       try {
         const profileData = await fetchProfile(accessToken);
-        console.log("Profile:", profileData);
         setProfile(profileData);
 
         const playlistsData = await fetchPlaylists(accessToken);
-        console.log("Playlists:", playlistsData);
-        setPlaylists(playlistsData || []); // Ensure .items is used
+        setPlaylists(playlistsData || []);
       } catch (e) {
-        console.error("Error fetching data:", e);
+        console.error("Error loading Spotify data:", e);
       }
     }
 
@@ -89,7 +148,12 @@ function App() {
       {profile && <Profile profile={profile} />}
       <h2>Your Playlists</h2>
       {playlists.map((playlist) => (
-        <Playlist key={playlist.id} playlist={playlist} />
+        <Playlist
+          key={playlist.id}
+          playlist={playlist}
+          accessToken={accessToken}
+          scAccessToken={scAccessToken}
+        />
       ))}
     </div>
   );
