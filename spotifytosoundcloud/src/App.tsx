@@ -94,34 +94,40 @@ function App() {
     await redirectToSoundCloudAuth();
   }
 
-  //  Spotify useEffect
+  const [spotifyHandled, setSpotifyHandled] = useState(false);
+
   useEffect(() => {
+    if (spotifyHandled) return;
+
     const params = new URLSearchParams(window.location.search);
     const code = params.get("code");
-
     const verifier = localStorage.getItem("verifier");
 
-    // If we don't have an access token, assume this code is for Spotify
     if (!accessToken && verifier && code) {
+      setSpotifyHandled(true);
       handleSpotifyAuth(code);
-    } else if (!accessToken) {
+    } else if (!accessToken && !code) {
+      setSpotifyHandled(true);
       handleSpotifyAuth(null);
     }
-  }, [accessToken]);
+  }, [accessToken, spotifyHandled]);
 
-  //  SoundCloud useEffect
+  const [scHandled, setScHandled] = useState(false);
+
   useEffect(() => {
+    if (scHandled) return;
+
     const params = new URLSearchParams(window.location.search);
     const code = params.get("code");
 
-    // If we don't have a SoundCloud token, and Spotify has already handled its logic,
-    // assume this code is for SoundCloud
     if (!scAccessToken && code && !localStorage.getItem("access_token")) {
+      setScHandled(true);
       handleSoundCloudAuth(code);
-    } else if (!scAccessToken) {
+    } else if (!scAccessToken && !code) {
+      setScHandled(true);
       handleSoundCloudAuth(null);
     }
-  }, [scAccessToken]);
+  }, [scAccessToken, scHandled]);
 
   //  Fetch Spotify data
   useEffect(() => {
